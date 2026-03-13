@@ -1,18 +1,26 @@
 <!DOCTYPE html>
 <html>
 <head>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Proximity Beeper</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Proximity Beacon</title>
 
 <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
 
 <style>
-body { margin:0; }
-#map { height:100vh; }
+body { margin:0; font-family:Arial; }
+#map { height:80vh; }
+#panel { padding:10px; }
+button { font-size:18px; padding:8px; }
 </style>
 </head>
 
 <body>
+
+<div id="panel">
+<button onclick="startApp()">Start</button>
+<div id="status">Press Start</div>
+<div id="distance"></div>
+</div>
 
 <div id="map"></div>
 
@@ -22,93 +30,117 @@ body { margin:0; }
 
 let map = L.map('map').setView([0,0], 2);
 
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
-maxZoom:19
-}).addTo(map);
+L.tileLayer(
+'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+{ maxZoom:19 }
+).addTo(map);
 
-let targetMarker = null;
-let userMarker = null;
-let target = null;
+let target=null;
+let targetMarker=null;
+let userMarker=null;
 
-const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+let audioCtx;
+let lastBeep=0;
+
+function startApp(){
+
+document.getElementById("status").innerText="Starting GPS";
+
+audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+navigator.geolocation.watchPosition(updatePosition, gpsError,{
+enableHighAccuracy:true,
+maximumAge:0,
+timeout:10000
+});
+}
 
 function beep(){
-    const osc = audioCtx.createOscillator();
-    const gain = audioCtx.createGain();
 
-    osc.connect(gain);
-    gain.connect(audioCtx.destination);
+const osc = audioCtx.createOscillator();
+const gain = audioCtx.createGain();
 
-    osc.frequency.value = 800;
-    osc.start();
+osc.connect(gain);
+gain.connect(audioCtx.destination);
 
-    gain.gain.exponentialRampToValueAtTime(
-        0.00001,
-        audioCtx.currentTime + 0.2
-    );
+osc.frequency.value=900;
 
-    osc.stop(audioCtx.currentTime + 0.2);
+osc.start();
+
+gain.gain.exponentialRampToValueAtTime(
+0.0001,
+audioCtx.currentTime+0.2
+);
+
+osc.stop(audioCtx.currentTime+0.2);
 }
 
-map.on("click", function(e){
+map.on("click",function(e){
 
-    target = e.latlng;
+target=e.latlng;
 
-    if(targetMarker){
-        map.removeLayer(targetMarker);
-    }
+if(targetMarker) map.removeLayer(targetMarker);
 
-    targetMarker = L.marker(target).addTo(map);
+targetMarker=L.marker(target).addTo(map);
+
+document.getElementById("status").innerText="Target placed";
 });
 
-function distance(lat1, lon1, lat2, lon2){
+function updatePosition(pos){
 
-    const R = 6371000;
+const lat=pos.coords.latitude;
+const lon=pos.coords.longitude;
 
-    const dLat = (lat2-lat1)*Math.PI/180;
-    const dLon = (lon2-lon1)*Math.PI/180;
+document.getElementById("status").innerText="GPS active";
 
-    const a =
-        Math.sin(dLat/2)*Math.sin(dLat/2) +
-        Math.cos(lat1*Math.PI/180) *
-        Math.cos(lat2*Math.PI/180) *
-        Math.sin(dLon/2)*Math.sin(dLon/2);
-
-    const c = 2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
-
-    return R*c;
+if(userMarker){
+userMarker.setLatLng([lat,lon]);
+}
+else{
+userMarker=L.marker([lat,lon]).addTo(map);
+map.setView([lat,lon],16);
 }
 
-let lastBeep = 0;
+if(target){
 
-navigator.geolocation.watchPosition(function(pos){
+const d=distance(lat,lon,target.lat,target.lng);
 
-    const lat = pos.coords.latitude;
-    const lon = pos.coords.longitude;
+document.getElementById("distance").innerText=
+"Distance: "+Math.round(d)+" m";
 
-    if(userMarker){
-        userMarker.setLatLng([lat,lon]);
-    }else{
-        userMarker = L.marker([lat,lon]).addTo(map);
-        map.setView([lat,lon],16);
-    }
+let interval=Math.max(150,d*4);
 
-    if(target){
+if(Date.now()-lastBeep>interval){
 
-        const d = distance(lat,lon,target.lat,target.lng);
+beep();
+lastBeep=Date.now();
+}
+}
+}
 
-        let interval = Math.max(200, d*5);
+function gpsError(err){
 
-        if(Date.now() - lastBeep > interval){
+document.getElementById("status").innerText=
+"GPS error: "+err.message;
+}
 
-            beep();
-            lastBeep = Date.now();
-        }
-    }
+function distance(lat1,lon1,lat2,lon2){
 
-},{
-enableHighAccuracy:true
-});
+const R=6371000;
+
+const dLat=(lat2-lat1)*Math.PI/180;
+const dLon=(lon2-lon1)*Math.PI/180;
+
+const a=
+Math.sin(dLat/2)*Math.sin(dLat/2)+
+Math.cos(lat1*Math.PI/180)*
+Math.cos(lat2*Math.PI/180)*
+Math.sin(dLon/2)*Math.sin(dLon/2);
+
+const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+
+return R*c;
+}
 
 </script>
 
