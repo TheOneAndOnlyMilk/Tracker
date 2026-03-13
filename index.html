@@ -1,38 +1,10 @@
-<!DOCTYPE html>
-<html>
-<head>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Proximity Beacon</title>
-
-<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
-
-<style>
-body { margin:0; font-family:Arial; }
-#map { height:80vh; }
-#panel { padding:10px; }
-button { font-size:18px; padding:8px; }
-</style>
-</head>
-
-<body>
-
-<div id="panel">
-<button onclick="startApp()">Start</button>
-<div id="status">Press Start</div>
-<div id="distance"></div>
-</div>
-
-<div id="map"></div>
-
-<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
-
 <script>
 
-let map = L.map('map').setView([0,0], 2);
+let map = L.map('map').setView([0,0],2);
 
 L.tileLayer(
 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-{ maxZoom:19 }
+{maxZoom:19}
 ).addTo(map);
 
 let target=null;
@@ -40,39 +12,71 @@ let targetMarker=null;
 let userMarker=null;
 
 let audioCtx;
-let lastBeep=0;
+let oscillator;
+let gainNode;
+
+let pulseInterval = 800;
+let lastPulse = 0;
 
 function startApp(){
 
-document.getElementById("status").innerText="Starting GPS";
-
 audioCtx = new (window.AudioContext || window.webkitAudioContext)();
 
-navigator.geolocation.watchPosition(updatePosition, gpsError,{
-enableHighAccuracy:true,
-maximumAge:0,
-timeout:10000
+oscillator = audioCtx.createOscillator();
+gainNode = audioCtx.createGain();
+
+oscillator.frequency.value = 900;
+
+gainNode.gain.value = 0;
+
+oscillator.connect(gainNode);
+gainNode.connect(audioCtx.destination);
+
+oscillator.start();
+
+navigator.geolocation.watchPosition(updatePosition,gpsError,{
+enableHighAccuracy:true
 });
 }
 
-function beep(){
+function pulse(){
 
-const osc = audioCtx.createOscillator();
-const gain = audioCtx.createGain();
+let now = audioCtx.currentTime;
 
-osc.connect(gain);
-gain.connect(audioCtx.destination);
+gainNode.gain.cancelScheduledValues(now);
 
-osc.frequency.value=900;
+gainNode.gain.setValueAtTime(0,now);
+gainNode.gain.linearRampToValueAtTime(1,now+0.01);
+gainNode.gain.linearRampToValueAtTime(0,now+0.08);
 
-osc.start();
+}
 
-gain.gain.exponentialRampToValueAtTime(
-0.0001,
-audioCtx.currentTime+0.2
-);
+function updatePosition(pos){
 
-osc.stop(audioCtx.currentTime+0.2);
+const lat=pos.coords.latitude;
+const lon=pos.coords.longitude;
+
+if(userMarker){
+userMarker.setLatLng([lat,lon]);
+}else{
+userMarker=L.marker([lat,lon]).addTo(map);
+map.setView([lat,lon],16);
+}
+
+if(target){
+
+const d=distance(lat,lon,target.lat,target.lng);
+
+pulseInterval = Math.max(60, d*3);
+
+if(Date.now()-lastPulse>pulseInterval){
+
+pulse();
+lastPulse=Date.now();
+
+}
+}
+
 }
 
 map.on("click",function(e){
@@ -83,45 +87,10 @@ if(targetMarker) map.removeLayer(targetMarker);
 
 targetMarker=L.marker(target).addTo(map);
 
-document.getElementById("status").innerText="Target placed";
 });
 
-function updatePosition(pos){
-
-const lat=pos.coords.latitude;
-const lon=pos.coords.longitude;
-
-document.getElementById("status").innerText="GPS active";
-
-if(userMarker){
-userMarker.setLatLng([lat,lon]);
-}
-else{
-userMarker=L.marker([lat,lon]).addTo(map);
-map.setView([lat,lon],16);
-}
-
-if(target){
-
-const d=distance(lat,lon,target.lat,target.lng);
-
-document.getElementById("distance").innerText=
-"Distance: "+Math.round(d)+" m";
-
-let interval=Math.max(150,d*4);
-
-if(Date.now()-lastBeep>interval){
-
-beep();
-lastBeep=Date.now();
-}
-}
-}
-
-function gpsError(err){
-
-document.getElementById("status").innerText=
-"GPS error: "+err.message;
+function gpsError(e){
+console.log(e);
 }
 
 function distance(lat1,lon1,lat2,lon2){
@@ -132,10 +101,10 @@ const dLat=(lat2-lat1)*Math.PI/180;
 const dLon=(lon2-lon1)*Math.PI/180;
 
 const a=
-Math.sin(dLat/2)*Math.sin(dLat/2)+
+Math.sin(dLat/2)**2+
 Math.cos(lat1*Math.PI/180)*
 Math.cos(lat2*Math.PI/180)*
-Math.sin(dLon/2)*Math.sin(dLon/2);
+Math.sin(dLon/2)**2;
 
 const c=2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
 
@@ -143,6 +112,3 @@ return R*c;
 }
 
 </script>
-
-</body>
-</html>
